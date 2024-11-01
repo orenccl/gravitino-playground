@@ -64,7 +64,7 @@ start() {
   testDocker
   checkCompose
 
-  ports=(8090 9001 3307 19000 19083 60070 13306 15342 18080 18888)
+  ports=(8090 9001 3307 19000 19083 60070 13306 15342 18080 18888 19090 13000)
   for port in "${ports[@]}"; do
     checkPortInUse ${port}
   done
