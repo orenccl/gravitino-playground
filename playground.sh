@@ -32,7 +32,7 @@ requiredPorts=(8090 9001 3307 19000 19083 60070 13306 15342 18080 18888 19090 13
 testDocker() {
   echo "[INFO] Testing Docker environment by running hello-world..."
   # Use always to test network connection
-  docker run --rm --pull always hello-world:latest >/dev/null 2>&1
+  docker run --rm --pull always hello-world:nanoserver >/dev/null 2>&1
 
   if [ $? -eq 0 ]; then
     echo "[INFO] Docker check passed: Docker is working correctly!"
@@ -182,23 +182,20 @@ start() {
   echo "[INFO] Starting the playground..."
   echo "[INFO] The playground requires ${requiredCpuCores} CPU cores, ${requiredRamGB} GB of RAM, and ${requiredDiskSpaceGB} GB of disk storage to operate efficiently."
 
-  if [ "${skipChecks}" == false ]; then
-    case "$runtime" in
-    k8s)
-      testK8s
-      checkHelm
-      ;;
-    docker)
-      testDocker
-      checkDockerCompose
-      checkDockerDisk
-      checkDockerRam
-      checkDockerCpu
-
-      checkPortsInUse
-      ;;
-    esac
-  fi
+  case "$runtime" in
+  k8s)
+    testK8s
+    checkHelm
+    ;;
+  docker)
+    testDocker
+    checkDockerCompose
+    checkDockerDisk
+    checkDockerRam
+    checkDockerCpu
+    checkPortsInUse
+    ;;
+  esac
 
   cd ${playground_dir} || exit 1
   echo "[INFO] Preparing packages..."
@@ -237,7 +234,7 @@ stop() {
 
   case "$runtime" in
   k8s)
-  helm uninstall --namespace gravitino-playground gravitino-playground
+    helm uninstall --namespace gravitino-playground gravitino-playground
     ;;
   docker)
     docker-compose down
@@ -261,17 +258,6 @@ docker)
   echo "[ERROR] please specify which runtime you want to use, available runtime: [docker|k8s]"
 esac
 
-skipChecks=false
-
-case "$3" in
---skip-checks)
-  skipChecks=true;
-  ;;
--s)
-  skipChecks=true;
-  ;;
-esac
-
 case "$2" in
 start)
   start
@@ -283,7 +269,7 @@ stop)
   stop
   ;;
 *)
-  echo "Usage: $0 [k8s|docker] [start|status|stop] [--skip-checks|-s]"
+  echo "Usage: $0 [k8s|docker] [start|status|stop]"
   exit 1
   ;;
 esac
