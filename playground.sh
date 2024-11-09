@@ -24,15 +24,19 @@ playground_dir="$(
   pwd
 )"
 
+playgroundRuntimeName="gravitino-playground"
+
 requiredDiskSpaceGB=25
 requiredRamGB=8
 requiredCpuCores=2
 requiredPorts=(8090 9001 3307 19000 19083 60070 13306 15342 18080 18888 19090 13000)
 
+runtime=""
+
 testDocker() {
   echo "[INFO] Testing Docker environment by running hello-world..."
   # Use always to test network connection
-  docker run --rm --pull always hello-world:nanoserver >/dev/null 2>&1
+  docker run --rm --pull always hello-world:linux >/dev/null 2>&1
 
   if [ $? -eq 0 ]; then
     echo "[INFO] Docker check passed: Docker is working correctly!"
@@ -43,12 +47,12 @@ testDocker() {
 }
 
 checkDockerCompose() {
-  isExist=$(which docker-compose)
+  isExist=$(which docker compose)
 
   if [ ${isExist} ]; then
     echo "[INFO] Docker compose check passed: Docker compose is working correctly!"
   else
-    echo "[ERROR] Docker compose check failed: No docker service environment found. Please install docker-compose."
+    echo "[ERROR] Docker compose check failed: No docker service environment found. Please install docker compose."
     exit 1
   fi
 }
@@ -178,11 +182,94 @@ checkPortsInUse() {
   fi
 }
 
+checkRuntime() {
+  runtime=""
+
+  echo "[INFO] Checking runtime: ${runtime}"
+  # Check if Docker is available
+  local dockerAvailable=false
+  if command -v docker >/dev/null 2>&1; then
+    dockerAvailable=true
+  fi
+
+  # Check if kubectl is available
+  local k8sAvailable=false
+  if command -v kubectl >/dev/null 2>&1; then
+    k8sAvailable=true
+  fi
+
+  # If no runtime is available
+  if [ "${dockerAvailable}" = false ] && [ "${k8sAvailable}" = false ]; then
+    echo "[ERROR] No runtime found. Please install Docker or Kubernetes."
+    exit 1
+  fi
+
+  # If both are available, let user choose
+  if [ "${dockerAvailable}" = true ] && [ "${k8sAvailable}" = true ]; then
+    read -p "Both Docker and K8s are available. Which runtime would you like to use? [docker/k8s] (default: docker): " choice
+
+    case "$choice" in
+      k8s)
+        runtime="k8s"
+        ;;
+      docker|"")  # Empty input defaults to docker
+        runtime="docker"
+        ;;
+      *)
+        echo "[ERROR] Invalid choice. Using default: docker"
+        runtime="docker"
+        ;;
+    esac
+    return
+  fi
+
+  # If only Docker is available
+  if [ "${dockerAvailable}" = true ]; then
+    runtime="docker"
+    return
+  fi
+
+  # If only K8s is available
+  if [ "${k8sAvailable}" = true ]; then
+    runtime="k8s"
+    return
+  fi
+}
+
+checkCurrentRuntime() {
+  runtime=""
+
+  # Check if gravitino-playground is running in Docker
+  if command -v docker >/dev/null 2>&1; then
+    if docker compose ls | grep -q "${playgroundRuntimeName}"; then
+      echo "[INFO] gravitino-playground is running in Docker"
+      runtime="docker"
+      return
+    fi
+  fi
+
+  # Check if gravitino-playground is running in K8s
+  if command -v kubectl >/dev/null 2>&1; then
+    if kubectl get namespace "${playgroundRuntimeName}" >/dev/null 2>&1; then
+      if kubectl -n "${playgroundRuntimeName}" get pods | grep -q "Running"; then
+        echo "[INFO] gravitino-playground is running in Kubernetes"
+        runtime="k8s"
+        return
+      fi
+    fi
+  fi
+
+  echo "[INFO] gravitino-playground is not currently running"
+  exit 1
+}
+
 start() {
   echo "[INFO] Starting the playground..."
   echo "[INFO] The playground requires ${requiredCpuCores} CPU cores, ${requiredRamGB} GB of RAM, and ${requiredDiskSpaceGB} GB of disk storage to operate efficiently."
 
-  case "$runtime" in
+  checkRuntime
+
+  case "${runtime}" in
   k8s)
     testK8s
     checkHelm
@@ -203,41 +290,45 @@ start() {
   ./init/gravitino/gravitino-dependency.sh
   ./init/jupyter/jupyter-dependency.sh
 
-  case "$runtime" in
+  case "${runtime}" in
   k8s)
-    helm upgrade --install gravitino-playground ./helm-chart/ \
-      --create-namespace --namespace gravitino-playground \
+    helm upgrade --install ${playgroundRuntimeName} ./helm-chart/ \
+      --create-namespace --namespace ${playgroundRuntimeName} \
       --set projectRoot=$(pwd)
     ;;
   docker)
     logSuffix=$(date +%Y%m%d%H%M%s)
-    docker-compose up --detach
-    docker compose logs -f >${playground_dir}/playground-${logSuffix}.log 2>&1 &
+    docker compose -p ${playgroundRuntimeName} up --detach
+    docker compose -p ${playgroundRuntimeName} logs -f  >${playground_dir}/playground-${logSuffix}.log 2>&1 &
     echo "[INFO] Check log details: ${playground_dir}/playground-${logSuffix}.log"
     ;;
   esac
 }
 
 status() {
-  case "$runtime" in
+  checkCurrentRuntime
+
+  case "${runtime}" in
   k8s)
     kubectl -n gravitino-playground get pods -o wide
     ;;
   docker)
-    docker-compose ps -a
+    docker compose ps -a
     ;;
   esac
 }
 
 stop() {
+  checkCurrentRuntime
+
   echo "[INFO] Stopping the playground..."
 
-  case "$runtime" in
+  case "${runtime}" in
   k8s)
     helm uninstall --namespace gravitino-playground gravitino-playground
     ;;
   docker)
-    docker-compose down
+    docker compose down
     if [ $? -eq 0 ]; then
       echo "[INFO] Playground stopped!"
     fi
@@ -245,20 +336,7 @@ stop() {
   esac
 }
 
-runtime=""
-
 case "$1" in
-k8s)
-  runtime="k8s";
-  ;;
-docker)
-  runtime="docker";
-  ;;
-*)
-  echo "[ERROR] please specify which runtime you want to use, available runtime: [docker|k8s]"
-esac
-
-case "$2" in
 start)
   start
   ;;
@@ -269,7 +347,7 @@ stop)
   stop
   ;;
 *)
-  echo "Usage: $0 [k8s|docker] [start|status|stop]"
+  echo "Usage: $0 [start|status|stop]"
   exit 1
   ;;
 esac
