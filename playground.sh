@@ -25,13 +25,12 @@ playground_dir="$(
 )"
 
 playgroundRuntimeName="gravitino-playground"
+runtime=""
 
 requiredDiskSpaceGB=25
 requiredRamGB=8
 requiredCpuCores=2
 requiredPorts=(8090 9001 3307 19000 19083 60070 13306 15342 18080 18888 19090 13000)
-
-runtime=""
 
 testDocker() {
   echo "[INFO] Testing Docker environment by running hello-world..."
@@ -58,58 +57,58 @@ checkDockerCompose() {
 }
 
 checkDockerDisk() {
-    # Step 1: Get Docker Root Directory
-    local dockerRootDir="$(docker info 2>/dev/null | grep "Docker Root Dir" | awk '{print $NF}')"
+  # Step 1: Get Docker Root Directory
+  local dockerRootDir="$(docker info 2>/dev/null | grep "Docker Root Dir" | awk '{print $NF}')"
 
-    # Step 2: Check if the Docker directory exists
-    if [ -z "${dockerRootDir}" ]; then
-      echo "[ERROR] Disk check failed: Docker is not running or Docker Root Directory not found."
-      exit 1
-    fi
+  # Step 2: Check if the Docker directory exists
+  if [ -z "${dockerRootDir}" ]; then
+    echo "[ERROR] Disk check failed: Docker is not running or Docker Root Directory not found."
+    exit 1
+  fi
 
-    local availableSpaceKB
+  local availableSpaceKB
 
-    if [ -d "${dockerRootDir}" ]; then
-      # Check available space in the Docker directory's partition
-      availableSpaceKB=$(df --output=avail "${dockerRootDir}" | awk 'NR==2 {print $1}')
-    else
-      # Check available space in the root partition if the directory doesn't exist (special case for WSL)
-      availableSpaceKB=$(df --output=avail / | awk 'NR==2 {print $1}')
-    fi
+  if [ -d "${dockerRootDir}" ]; then
+    # Check available space in the Docker directory's partition
+    availableSpaceKB=$(df --output=avail "${dockerRootDir}" | awk 'NR==2 {print $1}')
+  else
+    # Check available space in the root partition if the directory doesn't exist (special case for WSL)
+    availableSpaceKB=$(df --output=avail / | awk 'NR==2 {print $1}')
+  fi
 
-    # Step 3: Check if available space is greater than required
-    local availableSpaceGB=$((${availableSpaceKB} / 1024 / 1024))
+  # Step 3: Check if available space is greater than required
+  local availableSpaceGB=$((${availableSpaceKB} / 1024 / 1024))
 
-    if [ "${availableSpaceGB}" -ge "${requiredDiskSpaceGB}" ]; then
-      echo "[INFO] Disk check passed: ${availableSpaceGB} GB available."
-    else
-      echo "[ERROR] Disk check failed: ${availableSpaceGB} GB available, ${requiredDiskSpaceGB} GB or more required."
-      exit 1
-    fi
+  if [ "${availableSpaceGB}" -ge "${requiredDiskSpaceGB}" ]; then
+    echo "[INFO] Disk check passed: ${availableSpaceGB} GB available."
+  else
+    echo "[ERROR] Disk check failed: ${availableSpaceGB} GB available, ${requiredDiskSpaceGB} GB or more required."
+    exit 1
+  fi
 }
 
 checkDockerRam() {
-    local totalRamBytes=$(docker info --format '{{.MemTotal}}')
-    # Convert from bytes to GB
-    local totalRamGB=$((totalRamBytes / 1024 / 1024 / 1024))
+  local totalRamBytes=$(docker info --format '{{.MemTotal}}')
+  # Convert from bytes to GB
+  local totalRamGB=$((totalRamBytes / 1024 / 1024 / 1024))
 
-    if [ "${totalRamGB}" -ge "${requiredRamGB}" ]; then
-        echo "[INFO] RAM check passed: ${totalRamGB} GB available."
-    else
-        echo "[ERROR] RAM check failed: Only ${totalRamGB} GB available, ${requiredRamGB} GB or more required."
-        exit 1
-    fi
+  if [ "${totalRamGB}" -ge "${requiredRamGB}" ]; then
+    echo "[INFO] RAM check passed: ${totalRamGB} GB available."
+  else
+    echo "[ERROR] RAM check failed: Only ${totalRamGB} GB available, ${requiredRamGB} GB or more required."
+    exit 1
+  fi
 }
 
 checkDockerCpu() {
-    local cpuCores=$(docker info --format '{{.NCPU}}')
+  local cpuCores=$(docker info --format '{{.NCPU}}')
 
-    if [ "${cpuCores}" -ge "${requiredCpuCores}" ]; then
-        echo "[INFO] CPU check passed: ${cpuCores} cores available."
-    else
-        echo "[ERROR] CPU check failed: Only ${cpuCores} cores available, ${requiredCpuCores} cores or more required."
-        exit 1
-    fi
+  if [ "${cpuCores}" -ge "${requiredCpuCores}" ]; then
+    echo "[INFO] CPU check passed: ${cpuCores} cores available."
+  else
+    echo "[ERROR] CPU check failed: Only ${cpuCores} cores available, ${requiredCpuCores} cores or more required."
+    exit 1
+  fi
 }
 
 testK8s() {
@@ -209,16 +208,18 @@ checkRuntime() {
     read -p "Both Docker and K8s are available. Which runtime would you like to use? [docker/k8s] (default: docker): " choice
 
     case "$choice" in
-      k8s)
-        runtime="k8s"
-        ;;
-      docker|"")  # Empty input defaults to docker
-        runtime="docker"
-        ;;
-      *)
-        echo "[ERROR] Invalid choice. Using default: docker"
-        runtime="docker"
-        ;;
+    k8s)
+      echo "[INFO] Using K8s runtime"
+      runtime="k8s"
+      ;;
+    docker | "") # Empty input defaults to docker
+      echo "[INFO] Using Docker runtime"
+      runtime="docker"
+      ;;
+    *)
+      echo "[ERROR] Invalid choice. Using default: docker"
+      runtime="docker"
+      ;;
     esac
     return
   fi
@@ -258,16 +259,20 @@ checkCurrentRuntime() {
       fi
     fi
   fi
-
-  echo "[INFO] gravitino-playground is not currently running"
-  exit 1
 }
 
 start() {
   echo "[INFO] Starting the playground..."
   echo "[INFO] The playground requires ${requiredCpuCores} CPU cores, ${requiredRamGB} GB of RAM, and ${requiredDiskSpaceGB} GB of disk storage to operate efficiently."
 
+  checkCurrentRuntime
+  if [ -n "${runtime}" ]; then
+    echo "[ERROR] Playground is already running in ${runtime}. Please stop it first."
+    exit 1
+  fi
+
   checkRuntime
+  checkPortsInUse
 
   case "${runtime}" in
   k8s)
@@ -280,7 +285,6 @@ start() {
     checkDockerDisk
     checkDockerRam
     checkDockerCpu
-    checkPortsInUse
     ;;
   esac
 
@@ -299,7 +303,7 @@ start() {
   docker)
     logSuffix=$(date +%Y%m%d%H%M%s)
     docker compose -p ${playgroundRuntimeName} up --detach
-    docker compose -p ${playgroundRuntimeName} logs -f  >${playground_dir}/playground-${logSuffix}.log 2>&1 &
+    docker compose -p ${playgroundRuntimeName} logs -f >${playground_dir}/playground-${logSuffix}.log 2>&1 &
     echo "[INFO] Check log details: ${playground_dir}/playground-${logSuffix}.log"
     ;;
   esac
@@ -307,6 +311,10 @@ start() {
 
 status() {
   checkCurrentRuntime
+  if [ -z "${runtime}" ]; then
+    echo "[ERROR] Playground is not running."
+    exit 1
+  fi
 
   case "${runtime}" in
   k8s)
@@ -320,12 +328,16 @@ status() {
 
 stop() {
   checkCurrentRuntime
+  if [ -z "${runtime}" ]; then
+    echo "[ERROR] Playground is not running."
+    exit 1
+  fi
 
   echo "[INFO] Stopping the playground..."
 
   case "${runtime}" in
   k8s)
-    helm uninstall --namespace gravitino-playground gravitino-playground
+    helm uninstall ${playgroundRuntimeName} --namespace ${playgroundRuntimeName}
     ;;
   docker)
     docker compose down
